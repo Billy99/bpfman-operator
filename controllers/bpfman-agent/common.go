@@ -213,12 +213,8 @@ func (r *ReconcilerCommon) reconcileBpfProgram(ctx context.Context,
 
 	switch isLoaded {
 	case true:
-		// prog ID should already have been set if program is loaded
-		id, err := bpfmanagentinternal.GetID(bpfProgram)
-		if err != nil {
-			r.Logger.Error(err, "Failed to get bpf program ID")
-			return bpfmaniov1alpha1.BpfProgCondNotLoaded, err
-		}
+		// Since program is loaded, pull the Id from the result from bpfman call
+		id := loadedBpfProgram.GetKernelInfo().Id
 		switch shouldBeLoaded {
 		case true:
 			// The program is loaded and it should be loaded.
@@ -230,7 +226,7 @@ func (r *ReconcilerCommon) reconcileBpfProgram(ctx context.Context,
 			isSame, reasons := bpfmanagentinternal.DoesProgExist(loadedBpfProgram, loadRequest)
 			if !isSame {
 				r.Logger.V(1).Info("bpf program is in wrong state, unloading and reloading", "reason", reasons, "bpfProgram Name", bpfProgram.Name, "bpf program ID", id)
-				if err := bpfmanagentinternal.UnloadBpfmanProgram(ctx, r.BpfmanClient, *id); err != nil {
+				if err := bpfmanagentinternal.UnloadBpfmanProgram(ctx, r.BpfmanClient, id); err != nil {
 					r.Logger.Error(err, "Failed to unload BPF Program")
 					return bpfmaniov1alpha1.BpfProgCondNotUnloaded, err
 				}
@@ -244,12 +240,12 @@ func (r *ReconcilerCommon) reconcileBpfProgram(ctx context.Context,
 			} else {
 				// Program exists and bpfProgram K8s Object is up to date
 				r.Logger.V(1).Info("Program is in correct state.  Nothing to do in bpfman")
-				r.progId = id
+				r.progId = &id
 			}
 		case false:
 			// The program is loaded but it shouldn't be loaded.
 			r.Logger.Info("Calling bpfman to unload program on node", "bpfProgram Name", bpfProgram.Name, "Program ID", id)
-			if err := bpfmanagentinternal.UnloadBpfmanProgram(ctx, r.BpfmanClient, *id); err != nil {
+			if err := bpfmanagentinternal.UnloadBpfmanProgram(ctx, r.BpfmanClient, id); err != nil {
 				r.Logger.Error(err, "Failed to unload Program")
 				return bpfmaniov1alpha1.BpfProgCondNotUnloaded, err
 			}
@@ -791,7 +787,7 @@ func (r *ReconcilerCommon) handleProgCreateOrUpdate(
 			existingId, _ := bpfmanagentinternal.GetID(&existingBpfProgram)
 
 			// If bpfProgram Maps OR the program ID annotation isn't up to date just update it and return
-			if !reflect.DeepEqual(existingId, r.progId) {
+			if r.progId != nil && !reflect.DeepEqual(existingId, r.progId) {
 				r.Logger.Info("Updating bpfProgram Object", "Id", r.progId, "bpfProgram", existingBpfProgram.Name)
 				// annotations should be populated on create
 				existingBpfProgram.Annotations[internal.IdAnnotation] = strconv.FormatUint(uint64(*r.progId), 10)
